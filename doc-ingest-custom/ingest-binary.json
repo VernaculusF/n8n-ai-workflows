@@ -5,6 +5,7 @@
     {
       "parameters": {
         "path": "doc-ingest-binary",
+        "httpMethod": "POST",
         "responseMode": "responseNode",
         "options": {
           "binaryData": true
@@ -36,7 +37,7 @@
         "collectionName": "documents",
         "returnAll": true,
         "additionalFields": {
-          "metadataJson": "={\"source\": \"binary-upload\", \"fileName\": $binary.data.fileName }",
+          "metadataJson": "={{ JSON.stringify({source: \"binary-upload\", fileName: $binary.data.fileName}) }}",
           "stripHtml": true
         }
       },
@@ -62,7 +63,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseData": "={{ $json }}",
+        "responseBody": "={{ $json }}",
         "options": {}
       },
       "id": "c3d4e5f6-a7b8-4c9d-8e0f-1f2a3b4c5d12",
