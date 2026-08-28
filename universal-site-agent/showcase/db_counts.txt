@@ -1,0 +1,8 @@
+       tbl       | count 
+-----------------+-------
+ site_embeddings |     0
+ chat_history    |     0
+ leads           |     0
+ tickets         |     0
+(4 rows)
+

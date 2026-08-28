@@ -1,0 +1,287 @@
+{
+  "name": "03 Telegram RAG Query (PGVector)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "86dedb91-bc69-48d1-b0c4-7a694b31b8b5",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -680,
+        0
+      ],
+      "webhookId": "d26b0a99-ecf2-4c9f-8e1a-f00183858f2c",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_telegramApi",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "You are helpful support assistant. Use the vector store tool to answer questions from the knowledge base. If the answer is not in the tool output, say you do not have information. Cite sources when possible."
+        }
+      },
+      "id": "a83518cc-f167-4209-9c25-8355ebf20ac4",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "8b3706d2-7a76-4840-8e9d-54c4c208f00c",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -360,
+        240
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_ME_openAiApi",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionKey": "={{ $json.message.chat.id }}",
+        "sessionIdType": "customKey",
+        "contextWindowLength": 10
+      },
+      "id": "c143a1b3-1663-4209-8a05-9a67b083780c",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Search knowledge base for relevant documents to answer user questions. Use for any question about indexed PDFs.",
+        "topK": 4
+      },
+      "id": "ee5263f3-8263-4d2e-a57c-d7d1ea4ef869",
+      "name": "Vector Store Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        -40,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "tableName": "embeddings",
+        "options": {}
+      },
+      "id": "fc4bc157-0a92-404f-8e91-03ad88404fd5",
+      "name": "Postgres PGVector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.3,
+      "position": [
+        120,
+        360
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_ME_postgres",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "8b2ae821-e4f7-4044-ac04-54d76d52912b",
+      "name": "Embeddings OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        120,
+        520
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_ME_openAiApi",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "aeb3f0b3-2dac-4ac2-b8d3-08bc114198ff",
+      "name": "OpenAI Chat Model for Tool",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        280,
+        240
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_ME_openAiApi",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "28bce56b-2a87-471e-b686-0c160a794b34",
+      "name": "Telegram Send",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        80,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_telegramApi",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Telegram Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Postgres PGVector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model for Tool": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres PGVector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "instanceId": "00d987051edd12b606e33e8b09f7018c160857f875d3a856f82b991422f82ca6",
+    "templateCredsSetupCompleted": true
+  },
+  "versionId": "3de52e70-85ea-4c0f-b582-cdc98e3ae2aa",
+  "id": "a0818677-8555-469d-9c63-66f300ed54e1"
+}

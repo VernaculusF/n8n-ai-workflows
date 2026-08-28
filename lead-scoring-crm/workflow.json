@@ -1,0 +1,278 @@
+{
+  "name": "Lead Scoring CRM - Webhook AI to Sheets/Slack",
+  "id": "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-47a8-9b0c-1d2e3f4a5b6c",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        0
+      ],
+      "webhookId": "c2d3e4f5-a6b7-48c9-9d0e-1f2a3b4c5d6e"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "systemMessage": "You are lead scoring assistant. Score leads 0-100 based on ICP fit, intent, company size, role. Return ONLY JSON: {\"score\": number, \"tier\": \"hot|warm|cold\", \"reason\": string, \"next_step\": string}. hot>=70, warm 40-69, cold <40. Be concise."
+        }
+      },
+      "id": "b2c3d4e5-f6a7-48b9-9c0d-2e3f4a5b6c7d",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        -400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "inclusionai/ling-3.0-flash-fin:free"
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-49c0-9d0e-3f4a5b6c7d8e",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        260
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = $input.first().json.output || $input.first().json.text || '';\nlet data = {};\ntry { const m = out.match(/\\{[\\s\\S]*\\}/); data = JSON.parse(m ? m[0] : out); } catch(e) { data = {score: 0, tier: 'cold', reason: 'parse failed', next_step: 'review manually'}; }\nconst body = $('Webhook').first().json.body || $('Webhook').first().json;\nconst lead = typeof body === 'object' && body.body ? body.body : body;\nreturn [{ json: { lead, score: Number(data.score)||0, tier: String(data.tier||'cold'), reason: String(data.reason||''), next_step: String(data.next_step||''), raw: out } }];"
+      },
+      "id": "d4e5f6a7-b8c9-40d1-9e0f-4a5b6c7d8e9f",
+      "name": "Parse Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.score }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              },
+              "rightValue": 70
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e5f6a7b8-c9d0-41e2-9f0a-5b6c7d8e9f0a",
+      "name": "IF Hot Lead",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.lead.source || '#leads' }}",
+        "text": "=🔥 Hot lead {{$json.score}}/100 ({{$json.tier}}) — {{$json.lead.name || $json.lead.email}} @ {{$json.lead.company}}\nReason: {{$json.reason}}\nNext: {{$json.next_step}}\nContact: {{$json.lead.email}} {{$json.lead.phone}}",
+        "otherOptions": {}
+      },
+      "id": "f6a7b8c9-d0e1-42f3-9a0b-6c7d8e9f0a1b",
+      "name": "Slack Hot Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1.3,
+      "position": [
+        300,
+        -100
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "3a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c6d",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Leads"
+        },
+        "mappingMode": "defineBelow",
+        "matchColumns": [
+          "email"
+        ],
+        "schema": {
+          "email": "={{ $json.lead.email }}",
+          "name": "={{ $json.lead.name }}",
+          "company": "={{ $json.lead.company }}",
+          "score": "={{ $json.score }}",
+          "tier": "={{ $json.tier }}",
+          "reason": "={{ $json.reason }}",
+          "next_step": "={{ $json.next_step }}",
+          "source": "={{ $json.lead.source }}",
+          "timestamp": "={{ $now }}"
+        },
+        "options": {}
+      },
+      "id": "a7b8c9d0-e1f2-43a4-9b0c-7d8e9f0a1b2c",
+      "name": "Google Sheets CRM",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        500,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c6e",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ok: true, score: $json.score, tier: $json.tier, reason: $json.reason, next_step: $json.next_step}) }}",
+        "options": {}
+      },
+      "id": "b8c9d0e1-f2a3-44b5-9c0d-8e9f0a1b2c3d",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Score": {
+      "main": [
+        [
+          {
+            "node": "IF Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Slack Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets CRM": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

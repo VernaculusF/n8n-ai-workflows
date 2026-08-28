@@ -1,0 +1,1315 @@
+{
+  "name": "Universal Site Agent - HUGE Chat",
+  "id": "c3d4e5f6-a7b8-49c0-9d0e-3f4a5b6c7d8e",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "site-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Webhook Site Chat",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        0
+      ],
+      "webhookId": "universal-site-agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json || {};\nconst msg = body.message || body.text || body.query || body.input || '';\nconst sessionId = body.sessionId || body.session_id || body.chatId || body.chat_id || $json.headers?.['x-session-id'] || `sess_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;\nconst siteUrl = $env.SITE_URL || body.siteUrl || 'https://example.com';\nconst siteName = $env.SITE_NAME || body.siteName || 'Universal Site';\nconst brandVoice = $env.BRAND_VOICE || 'helpful, concise, friendly';\nconst language = body.language || 'auto';\n// sanitize: trim, limit 4000 chars, strip control\nlet sanitizedMessage = String(msg).trim().slice(0,4000).replace(/\\x00/g,'');\nif (!sanitizedMessage) sanitizedMessage = 'Hello';\nreturn [{json: {message: msg, sanitizedMessage, sessionId, siteUrl, siteName, brandVoice, language, headers: $input.first().json.headers || {}, rawBody: body}}];"
+      },
+      "id": "a1b2c3d4-0002-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Config Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::int AS cnt FROM chat_history WHERE session_id = '={{ $('Config Normalize').item.json.sessionId }}' AND created_at > NOW() - INTERVAL '1 minute';",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0003-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PG Rate Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -1000,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.cnt }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              },
+              "rightValue": 10
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF Rate Limited",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 429,
+        "responseBody": "={{ JSON.stringify({ok: false, error: 'rate_limited', message: 'Too many requests, please wait a minute.'}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Respond Blocked 429",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -800,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Config Normalize').first().json.sanitizedMessage || '';\nconst blockedPatterns = [/ignore\\s+previous\\s+instructions/i, /system\\s+prompt/i, /\\bDROP\\s+TABLE\\b/i, /<script/i, /\\b prompt\\s+injection\\b/i];\nlet blocked = false, reason = '';\nfor (const re of blockedPatterns) { if (re.test(msg)) { blocked = true; reason = `blocked pattern ${re.source}`; break; } }\nif (msg.length > 4000) { blocked = true; reason = 'message too long'; }\nreturn [{json: {blocked, reason, sanitizedMessage: msg, sessionId: $('Config Normalize').first().json.sessionId, siteUrl: $('Config Normalize').first().json.siteUrl, siteName: $('Config Normalize').first().json.siteName, brandVoice: $('Config Normalize').first().json.brandVoice}}];"
+      },
+      "id": "a1b2c3d4-0006-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Code Guardrails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.blocked }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0007-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF Guardrails Blocked",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 403,
+        "responseBody": "={{ JSON.stringify({ok: false, error: 'blocked', reason: $json.reason || 'guardrails'}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0008-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Respond Blocked 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT role, message, created_at FROM chat_history WHERE session_id = '={{ $('Config Normalize').item.json.sessionId }}' ORDER BY created_at DESC LIMIT 20;",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0009-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PG Load History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -200,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.first().json.rows || $input.first().json || [];\nconst history = Array.isArray(rows) ? rows.reverse().map(r => `${r.role}: ${r.message}`).join('\\n') : '';\nconst cfg = $('Config Normalize').first().json;\nreturn [{json: {history, sanitizedMessage: cfg.sanitizedMessage, sessionId: cfg.sessionId, siteUrl: cfg.siteUrl, siteName: cfg.siteName, brandVoice: cfg.brandVoice, language: cfg.language}}];"
+      },
+      "id": "a1b2c3d4-0010-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Code Build History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "sessionKey": "={{ $('Config Normalize').item.json.sessionId }}",
+        "sessionIdType": "customKey",
+        "contextWindowLength": 20
+      },
+      "id": "a1b2c3d4-0011-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Config Normalize').item.json.sanitizedMessage }}",
+        "options": {
+          "systemMessage": "=You are {{ $('Config Normalize').item.json.siteName }} assistant. Brand voice: {{ $('Config Normalize').item.json.brandVoice }}. Site: {{ $('Config Normalize').item.json.siteUrl }}. History:\\n{{ $json.history || '' }}\\n\\nAlways respond with valid JSON only, no markdown: {\"answer\": string, \"confidence\": 0-1, \"intent\": \"answer|lead|ticket|handoff\", \"language\": string, \"needs_handoff\": boolean, \"lead\": {\"name\",\"email\",\"phone\",\"company\",\"message\"}, \"ticket\": {\"subject\",\"description\",\"priority\"}}. If user asks for human, set needs_handoff true. Use tools for knowledge base, site API, calculator, sanitize."
+        }
+      },
+      "id": "a1b2c3d4-0012-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "inclusionai/ling-3.0-flash-fin:free"
+        },
+        "options": {
+          "baseURL": "https://openrouter.ai/api/v1"
+        }
+      },
+      "id": "a1b2c3d4-0013-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        -400
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0014-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Embeddings OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        400
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableName": "site_embeddings",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0015-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PGVector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "knowledge_base",
+        "description": "Search site knowledge base for relevant documents to answer user questions. Use for any question about site content, docs, policies.",
+        "topK": 5
+      },
+      "id": "a1b2c3d4-0016-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Vector Store Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "name": "postgres_writer",
+        "description": "Write chat, lead, or ticket records to Postgres. Use to persist leads/tickets and chat history.",
+        "language": "javaScript",
+        "jsCode": "return JSON.stringify({ ok: true, tool: 'postgres_writer', query: typeof query !== 'undefined' ? query : '' });",
+        "specifyInputSchema": false
+      },
+      "id": "a1b2c3d4-0017-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Postgres Writer Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call site API to fetch live data (products, orders, CRM). Use for real-time site queries.",
+        "method": "GET",
+        "url": "={{ $env.SITE_URL || 'https://example.com' }}/api/search?q={query}",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "query",
+              "type": "string",
+              "description": "Search query for site API"
+            }
+          ]
+        },
+        "optimizeResponse": false
+      },
+      "id": "a1b2c3d4-0018-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "HTTP Site API Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "description": "Perform calculations. Use for prices, totals, dates, math."
+      },
+      "id": "a1b2c3d4-0019-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Calculator Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "name": "sanitize",
+        "description": "Sanitize user input and agent output. Remove HTML, trim, escape.",
+        "language": "javaScript",
+        "jsCode": "const inputText = typeof query !== 'undefined' ? query : (typeof input !== 'undefined' ? input : '');\nconst out = String(inputText).replace(/<[^>]*>/g,'').trim().slice(0,4000);\nreturn out;",
+        "specifyInputSchema": false
+      },
+      "id": "a1b2c3d4-0020-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Code Sanitize Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.output ? 'hit' : ($json.answer ? 'hit' : '') }}",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0021-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF KB Hit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.duckduckgo.com/?q={{ encodeURIComponent($('Config Normalize').item.json.sanitizedMessage) }}&format=json&no_html=1",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "a1b2c3d4-0022-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "HTTP DuckDuckGo Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const duck = $input.first().json;\nconst agentOut = $('AI Agent').first()?.json?.output || '';\nconst query = $('Config Normalize').first().json.sanitizedMessage;\n// simple rerank: prefer duck AbstractText if present\nconst duckText = duck.AbstractText || duck.Results?.[0]?.Text || '';\nconst combined = agentOut + (duckText ? '\\n\\nFallback: ' + duckText : '');\nreturn [{json: {reranked: combined, duckText, agentOut, query}}];"
+      },
+      "id": "a1b2c3d4-0023-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Code Rerank",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $input.first().json.output || $input.first().json.reranked || $input.first().json.text || '';\nif (typeof raw !== 'string') raw = JSON.stringify(raw);\nlet data = {};\ntry {\n  const m = raw.match(/\\{[\\s\\S]*\\}/);\n  data = JSON.parse(m ? m[0] : raw);\n} catch(e) {\n  data = {answer: raw, confidence: 0.5, intent: 'answer', language: 'auto', needs_handoff: false, lead: {}, ticket: {}};\n}\nconst cfg = $('Config Normalize').first().json;\nconst sessionId = cfg.sessionId;\nconst siteUrl = cfg.siteUrl;\nreturn [{json: {raw, answer: String(data.answer||raw).slice(0,4000), confidence: Number(data.confidence||0.5), intent: String(data.intent||'answer'), language: String(data.language||'auto'), needs_handoff: Boolean(data.needs_handoff), lead: data.lead||{}, ticket: data.ticket||{}, sessionId, siteUrl, message: cfg.sanitizedMessage}}];"
+      },
+      "id": "a1b2c3d4-0024-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Code Parse Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "value": "={{ $json.intent }}",
+              "operation": "equal",
+              "rules": [
+                {
+                  "value": "answer"
+                }
+              ]
+            },
+            {
+              "value": "={{ $json.intent }}",
+              "operation": "equal",
+              "rules": [
+                {
+                  "value": "lead"
+                }
+              ]
+            },
+            {
+              "value": "={{ $json.intent }}",
+              "operation": "equal",
+              "rules": [
+                {
+                  "value": "ticket"
+                }
+              ]
+            },
+            {
+              "value": "={{ $json.intent }}",
+              "operation": "equal",
+              "rules": [
+                {
+                  "value": "handoff"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "allMatchingOutputs": false
+        }
+      },
+      "id": "a1b2c3d4-0025-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Switch Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1000,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needs_handoff }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0026-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF Handoff Required",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL || '#support' }}",
+        "text": "=\ud83c\udd98 Handoff {{ $json.sessionId }} intent={{ $json.intent }} conf={{ $json.confidence }}\\nQ: {{ $('Config Normalize').item.json.sanitizedMessage }}\\nA: {{ $json.answer }}\\nSite: {{ $json.siteUrl }}\\nLead: {{ JSON.stringify($json.lead) }}\\nTicket: {{ JSON.stringify($json.ticket) }}",
+        "otherOptions": {}
+      },
+      "id": "a1b2c3d4-0027-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Slack Notify",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1.3,
+      "position": [
+        1200,
+        200
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "3a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c6d",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_ADMIN_ID || $env.TELEGRAM_CHAT_ID || '123456' }}",
+        "text": "=Handoff {{ $json.sessionId }}: {{ $json.answer }} (intent {{ $json.intent }})",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a1b2c3d4-0028-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        400
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO chat_history (session_id, role, message, intent, confidence, language, needs_handoff, metadata) VALUES ('={{ $('Config Normalize').item.json.sessionId }}', 'assistant', '={{ $json.answer }}', '={{ $json.intent }}', {{ $json.confidence || 0.5 }}, '={{ $json.language }}', {{ $json.needs_handoff }}, '={{ JSON.stringify({siteUrl: $json.siteUrl, raw: $json.raw}) }}'::jsonb) RETURNING id; INSERT INTO chat_history (session_id, role, message) VALUES ('={{ $('Config Normalize').item.json.sessionId }}', 'user', '={{ $('Webhook Site Chat').item.json.body.message || $('Config Normalize').item.json.sanitizedMessage }}') RETURNING id;",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0029-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PG Insert History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1400,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO leads (session_id, name, email, phone, company, message, source, intent, confidence, language, metadata) VALUES ('={{ $('Config Normalize').item.json.sessionId }}', '={{ $json.lead.name || \"\" }}', '={{ $json.lead.email || \"\" }}', '={{ $json.lead.phone || \"\" }}', '={{ $json.lead.company || \"\" }}', '={{ $json.lead.message || $('Config Normalize').item.json.sanitizedMessage }}', 'site-chat', '={{ $json.intent }}', {{ $json.confidence || 0.5 }}, '={{ $json.language }}', '={{ JSON.stringify($json.lead) }}'::jsonb) ON CONFLICT DO NOTHING RETURNING id;",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0030-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PG Insert Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1400,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tickets (session_id, subject, description, priority, status, email, name, intent, language, metadata) VALUES ('={{ $('Config Normalize').item.json.sessionId }}', '={{ $json.ticket.subject || $json.answer.slice(0,100) }}', '={{ $json.ticket.description || $json.answer }}', '={{ $json.ticket.priority || \"medium\" }}', 'open', '={{ $json.lead.email || \"\" }}', '={{ $json.lead.name || \"\" }}', '={{ $json.intent }}', '={{ $json.language }}', '={{ JSON.stringify($json.ticket) }}'::jsonb) RETURNING id;",
+        "additionalFields": {}
+      },
+      "id": "a1b2c3d4-0031-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "PG Insert Ticket",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1400,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "b1c2d3e4-f5a6-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Config Normalize').item.json.siteUrl }}/api/crm/lead",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "sessionId",
+              "value": "={{ $('Config Normalize').item.json.sessionId }}"
+            },
+            {
+              "name": "lead",
+              "value": "={{ JSON.stringify($json.lead) }}"
+            },
+            {
+              "name": "intent",
+              "value": "={{ $json.intent }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $('Config Normalize').item.json.sanitizedMessage }}"
+            }
+          ]
+        },
+        "options": {},
+        "sendQuery": false
+      },
+      "id": "a1b2c3d4-0032-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "HTTP Site Write",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        600
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Analytics"
+        },
+        "mappingMode": "defineBelow",
+        "matchColumns": [],
+        "schema": {
+          "sessionId": "={{ $('Config Normalize').item.json.sessionId }}",
+          "intent": "={{ $json.intent }}",
+          "confidence": "={{ $json.confidence }}",
+          "language": "={{ $json.language }}",
+          "needs_handoff": "={{ $json.needs_handoff }}",
+          "answer": "={{ $json.answer }}",
+          "message": "={{ $('Config Normalize').item.json.sanitizedMessage }}",
+          "timestamp": "={{ $now }}"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0033-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Sheets Analytics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [
+        1400,
+        600
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c6e",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst answer = d.answer || 'Sorry, no answer.';\nconst confidence = d.confidence ?? 0.5;\nconst intent = d.intent || 'answer';\nconst language = d.language || 'auto';\nconst sessionId = d.sessionId || $('Config Normalize').first().json.sessionId;\nconst siteName = $('Config Normalize').first().json.siteName;\n// markdown-lite: bold, links\nlet formatted = String(answer).replace(/\\*\\*(.*?)\\*\\*/g, '<b>$1</b>');\nreturn [{json: {answer, formatted, confidence, intent, language, sessionId, siteName, needs_handoff: d.needs_handoff, lead: d.lead, ticket: d.ticket, raw: d.raw}}];"
+      },
+      "id": "a1b2c3d4-0034-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 200,
+        "responseBody": "={{ JSON.stringify({ok: true, answer: $json.answer, formatted: $json.formatted, confidence: $json.confidence, intent: $json.intent, language: $json.language, sessionId: $json.sessionId, needs_handoff: $json.needs_handoff}) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0035-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Respond Success 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1400,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.lead && $json.lead.email ? $json.lead.email : '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0036-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF Lead Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ticket && $json.ticket.subject ? $json.ticket.subject : ($json.intent === 'ticket' ? 'yes' : '') }}",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0037-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "IF Ticket Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0038-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Merge Handoff Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        1000,
+        -200
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Site Chat": {
+      "main": [
+        [
+          {
+            "node": "Config Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Normalize": {
+      "main": [
+        [
+          {
+            "node": "PG Rate Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Rate Check": {
+      "main": [
+        [
+          {
+            "node": "IF Rate Limited",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Rate Limited": {
+      "main": [
+        [
+          {
+            "node": "Respond Blocked 429",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Guardrails": {
+      "main": [
+        [
+          {
+            "node": "IF Guardrails Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Guardrails Blocked": {
+      "main": [
+        [
+          {
+            "node": "Respond Blocked 403",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG Load History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Load History": {
+      "main": [
+        [
+          {
+            "node": "Code Build History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Build History": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "IF KB Hit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF KB Hit": {
+      "main": [
+        [
+          {
+            "node": "Code Parse Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP DuckDuckGo Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP DuckDuckGo Search": {
+      "main": [
+        [
+          {
+            "node": "Code Rerank",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Rerank": {
+      "main": [
+        [
+          {
+            "node": "Code Parse Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Parse Output": {
+      "main": [
+        [
+          {
+            "node": "Switch Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Intent": {
+      "main": [
+        [
+          {
+            "node": "IF Handoff Required",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Lead Exists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Ticket Needed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Handoff Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Handoff Required": {
+      "main": [
+        [
+          {
+            "node": "PG Insert History",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Notify": {
+      "main": [
+        [
+          {
+            "node": "Telegram Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Notify": {
+      "main": [
+        [
+          {
+            "node": "PG Insert History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Lead Exists": {
+      "main": [
+        [
+          {
+            "node": "PG Insert Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG Insert History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Ticket Needed": {
+      "main": [
+        [
+          {
+            "node": "PG Insert Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PG Insert History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Insert History": {
+      "main": [
+        [
+          {
+            "node": "Merge Handoff Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Insert Lead": {
+      "main": [
+        [
+          {
+            "node": "HTTP Site Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PG Insert Ticket": {
+      "main": [
+        [
+          {
+            "node": "Sheets Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Site Write": {
+      "main": [
+        [
+          {
+            "node": "Merge Handoff Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets Analytics": {
+      "main": [
+        [
+          {
+            "node": "Merge Handoff Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Handoff Results": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Success 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Writer Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Site API Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code Sanitize Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "PGVector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PGVector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Tool",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": [
+    {
+      "name": "site-chat"
+    },
+    {
+      "name": "universal"
+    }
+  ],
+  "meta": {
+    "instanceId": "00d987051edd12b606e33e8b09f7018c160857f875d3a856f82b991422f82ca6",
+    "templateCredsSetupCompleted": true
+  },
+  "versionId": "c3d4e5f6-1111-49c0-9d0e-3f4a5b6c7d8e"
+}

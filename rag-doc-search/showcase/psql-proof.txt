@@ -1,0 +1,29 @@
+                                        Таблица "public.embeddings"
+  Столбец  |     Тип      | Правило сортировки | Допустимость NULL |              По умолчанию              
+-----------+--------------+--------------------+-------------------+----------------------------------------
+ id        | bigint       |                    | not null          | nextval('embeddings_id_seq'::regclass)
+ embedding | vector(1536) |                    |                   | 
+ text      | text         |                    |                   | 
+ metadata  | jsonb        |                    |                   | 
+Индексы:
+    "embeddings_pkey" PRIMARY KEY, btree (id)
+    "idx_embeddings_embedding_hnsw" hnsw (embedding vector_cosine_ops)
+
+ count 
+-------
+     4
+(1 строка)
+
+ id |       source       |                      preview                       | vector_dims 
+----+--------------------+----------------------------------------------------+-------------
+  1 | company-policy.pdf | Company Policy Document - Section 1: All employees |        1536
+  2 | company-policy.pdf | Company Policy Document - Section 2: Vacation poli |        1536
+  3 | product-manual.pdf | Product Manual - Installation guide: Step 1 - Conn |        1536
+  4 | product-manual.pdf | Product Manual - Troubleshooting: If device not re |        1536
+(4 строки)
+
+ dims | count 
+------+-------
+ 1536 |     4
+(1 строка)
+

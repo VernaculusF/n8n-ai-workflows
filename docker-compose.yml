@@ -1,0 +1,72 @@
+# Ready stack: n8n + postgres/pgvector + qdrant (host network fixes Telegram egress 149.154.166.110:443)
+# For poller+webhook mode keep WEBHOOK_URL=http://localhost:5678/ and TELEGRAM_BOT_TOKEN in .env
+# For public webhook mode set WEBHOOK_URL=https://<domain>/ and activate 01-telegram-ai-bot.json
+# Poller sidecar example: see README.md Poller / docs/CONFIG.md
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: n8n-pgvector
+    restart: unless-stopped
+    environment:
+    - POSTGRES_DB=${POSTGRES_DB:-n8n}
+    - POSTGRES_USER=${POSTGRES_USER:-n8n}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-n8n_password}
+    - TZ=${TZ:-Europe/Moscow}
+    ports:
+    - 5433:5432
+    volumes:
+    - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: n8n-qdrant
+    restart: unless-stopped
+    ports:
+    - 6333:6333
+    - 6334:6334
+    volumes:
+    - qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n-demo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    env_file:
+    - .env
+    environment:
+    - N8N_HOST=${N8N_HOST:-localhost}
+    - N8N_PORT=5678
+    - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+    - N8N_SECURE_COOKIE=false
+    - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Europe/Moscow}
+    - TZ=${TZ:-Europe/Moscow}
+    - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+    - N8N_COMMUNITY_PACKAGES_ENABLED=true
+    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}
+    - POSTGRES_HOST=127.0.0.1
+    - POSTGRES_PORT=5433
+    - QDRANT_URL=http://127.0.0.1:6333
+    - DB_POSTGRESDB_HOST=127.0.0.1
+    - DB_POSTGRESDB_PORT=5433
+    - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
+    volumes:
+    - n8n_data:/home/node/.n8n
+    - ./workflows:/workflows:ro
+    network_mode: host
+volumes:
+  n8n_data: null
+  pgdata: null
+  qdrant_storage: null
