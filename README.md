@@ -1,16 +1,17 @@
 # n8n-ai-workflows
 
-Ready-to-import n8n workflows for AI automation. Includes a Telegram support bot that runs without public HTTPS via a long-polling bridge, a PDF-to-pgvector ingestion pipeline, a Telegram RAG query workflow, and a universal site chatbot (any domain, one workflow). Ships with a Docker stack (n8n, postgres/pgvector, qdrant) and a production-ready Telegram poller.
+Ready-to-import n8n workflows for AI automation. Includes a Telegram support bot that runs without public HTTPS via a long-polling bridge, a PDF-to-pgvector ingestion pipeline, a Telegram RAG query workflow, a universal site chatbot (any domain, one workflow), and a single-node `Document Ingest` pipeline using the custom community package `n8n-nodes-doc-ingest`. Ships with a Docker stack (n8n, postgres/pgvector, qdrant) and a production-ready Telegram poller.
 
 ## Contents
 
-- [Overview](#overview)
+ - [Overview](#overview)
 - [Ready Config](#ready-config-verified-2026-08-27)
 - [Workflows](#workflows)
   - [customer-support-agent](#customer-support-agent---telegram-ai-support-bot-production)
   - [rag-doc-search](#rag-doc-search---rag-over-pgvector-ingest--query)
   - [lead-scoring-crm](#lead-scoring-crm---webhook-ai-scoring-to-crm)
   - [universal-site-agent](#universal-site-agent---universal-site-chatbot-huge-38-nodes)
+  - [doc-ingest-custom](#doc-ingest-custom---document-ingest-via-custom-node-n8n-nodes-doc-ingest)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Credentials and Environment](#credentials-and-environment)
@@ -20,12 +21,13 @@ Ready-to-import n8n workflows for AI automation. Includes a Telegram support bot
 
 ## Overview
 
-This repository solves four common problems:
+This repository solves five common problems:
 
 - **Telegram bot without public HTTPS.** Telegram `setWebhook` requires a public HTTPS URL. This project uses `poller.py` to long-poll `getUpdates` and forward updates to a local `Webhook` node, so you can run on `localhost`, behind CGNAT, or on IPv6-only hosts without `ngrok` or a domain.
 - **Reliable delivery without duplicates.** A single long-polling consumer with `OFFSET = max(update_id) + 1` and `GET getUpdates?offset=OFFSET&timeout=30` avoids overlapping executions and `workflowStaticData` races that cause duplicate replies.
 - **Private-document RAG.** Ingest PDFs once into pgvector or qdrant, then answer Telegram questions strictly from retrieved context via a Vector Store Tool.
-- **Universal site chat without per-site forks.** One `POST /webhook/site-chat` workflow (`universal-site-agent`) serves any domain via `Code: Config & Normalize` (`$env.SITE_URL` fallback), RAG over `site_embeddings`, and intent routing to Slack/Telegram/Postgres/Sheets.
+ - **Universal site chat without per-site forks.** One `POST /webhook/site-chat` workflow (`universal-site-agent`) serves any domain via `Code: Config & Normalize` (`$env.SITE_URL` fallback), RAG over `site_embeddings`, and intent routing to Slack/Telegram/Postgres/Sheets.
+ - **Single-node ingestion with custom package.** `doc-ingest-custom` shows the same RAG ingest via one `Document Ingest` node (`n8n-nodes-doc-ingest.docIngest`) instead of 5 nodes — PDF/DOCX/HTML/URL/binary/text → pgvector in one panel.
 
 All workflows validate with `python3 -m json.tool` and use `@n8n/n8n-nodes-langchain.*` types where required.
 
@@ -34,7 +36,7 @@ All workflows validate with `python3 -m json.tool` and use `@n8n/n8n-nodes-langc
 - **n8n** `2.36.7` (`docker.n8n.io/n8nio/n8n`), `network_mode: host`, `N8N_COMMUNITY_PACKAGES_ENABLED=true`, `N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom`, `WEBHOOK_URL=http://localhost:5678/`, `GENERIC_TIMEZONE=Europe/Moscow`
 - **Postgres** `pgvector/pgvector:pg16`, container `n8n-pgvector`, `5433:5432`, healthcheck `pg_isready`, database `n8n`, user `n8n`
 - **Qdrant** `qdrant/qdrant:latest`, `6333:6333`, `6334:6334`, optional vector store alternative
-- **Workflows** `customer-support-agent/workflow.json` (Webhook + AI Agent + Memory), `rag-doc-search/workflow.json` + `ingest.json` (Manual + PGVector + RAG), `lead-scoring-crm/workflow.json` (Webhook + AI Scoring + Sheets/Slack), `universal-site-agent/workflow.json` + `ingest.json` + `widget.html` + `sql/init.sql` (Universal Site Chat, 38 nodes, RAG + intent routing)
+ - **Workflows** `customer-support-agent/workflow.json` (Webhook + AI Agent + Memory), `rag-doc-search/workflow.json` + `ingest.json` (Manual + PGVector + RAG), `lead-scoring-crm/workflow.json` (Webhook + AI Scoring + Sheets/Slack), `universal-site-agent/workflow.json` + `ingest.json` + `widget.html` + `sql/init.sql` (Universal Site Chat, 38 nodes, RAG + intent routing), `doc-ingest-custom/workflow.json` + `ingest-binary.json` (Webhook URL/binary/text → single `Document Ingest` node → pgvector)
 - **Poller** `poller.py` (36 lines, `requests`, long polling, `OFFSET` persisted in process, `python3 -u` unbuffered)
 - **Credentials** `telegramApi` id `1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`, `openAiApi` id `2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e`, `postgres` (host `127.0.0.1` for host network, `postgres` for bridge, port `5433`)
 - **Model** `inclusionai/ling-3.0-flash-fin:free` via OpenRouter `https://openrouter.ai/api/v1` (verified cost 0, also works with `gpt-4o-mini` on OpenAI direct)
@@ -232,6 +234,43 @@ Connections: main linear as above, `ai_languageModel: OpenAI Chat Model -> AI Ag
 - Replace Slack/Telegram with your helpdesk; `HTTP Site API Write` posts to `{{siteUrl}}/api/crm/lead`
 
 **Showcase:** [showcase proof](universal-site-agent/showcase/README.md)
+
+### doc-ingest-custom — Document Ingest via custom node n8n-nodes-doc-ingest
+
+`doc-ingest-custom/workflow.json` + `ingest-binary.json` `preview.png` `README.md` — see [doc-ingest-custom/README.md](doc-ingest-custom/README.md)
+
+**Trigger:** `Webhook` `POST /webhook/doc-ingest` (`n8n-nodes-base.webhook` 2, `webhookId doc-ingest-custom-webhook`, `responseMode responseNode`) `{ url, collection?, fileType? }` + `Manual Trigger` for inline `text` demo.
+
+**Nodes:**
+
+- `Webhook` 2 — `POST /webhook/doc-ingest` (raw Telegram-style `body`).
+- `Document Ingest` (`n8n-nodes-doc-ingest.docIngest` 1) — `source: url` `documentUrl: ={{ $json.body.url }}` `fileType: ={{ $json.body.fileType || 'auto' }}` `chunkSize 1000` `chunkOverlap 200` `embeddingModel text-embedding-3-small` `vectorStore pgvector` `collectionName ={{ $json.body.collection || 'documents' }}` `additionalFields.metadataJson ={"source":"doc-ingest-custom"}` `credentials: openAiApi + pgvectorApi`.
+- `Respond to Webhook` 1.1 — `respondWith json` `{ ok, collection, inserted, chunksIngested, totalChunks }`.
+- `Manual Trigger` 1 + `Document Ingest (text)` (`source:text`, `800/100`, same table).
+- `ingest-binary.json`: `Webhook (binary)` 2 (`POST /webhook/doc-ingest-binary`, `binaryData: true`) → `Document Ingest (binary)` (`source:binary`, `binaryPropertyName: data`) → `Respond`.
+
+**Flow:**
+
+```
+POST /webhook/doc-ingest { url: "https://example.com/doc.pdf" }
+  → Document Ingest (url → fetch arraybuffer → extractText/PDF/DOCX/HTML → split 1000/200 → embeddings batch 50 → pgvector INSERT documents)
+  → Respond 200 { ok: true, inserted: 14, chunksIngested: 14 }
+
+Manual Trigger → Document Ingest (text) → Execution { source: "text", inserted: 2 }
+POST /webhook/doc-ingest-binary (multipart data=@file.pdf) → Document Ingest (binary) → Respond
+```
+
+Compared to `rag-doc-search/ingest.json` (7 nodes: `Read Binary → Extract → Edit Fields → PGVector + Loader/Splitter/Embeddings`), this is **1 node** and handles PDF/DOCX/HTML/URL/binary/text, `returnAll/limit`, `continueOnFail`, `stripHtml`, `metadataJson`, and pgvector/qdrant/supabase switching in one panel. Install `n8n-nodes-doc-ingest` first (`npm install n8n-nodes-doc-ingest` in `~/.n8n/custom` + `N8N_COMMUNITY_PACKAGES_ENABLED=true`).
+
+**Purpose:** Drop-in replacement for the 5-node ingest chain; webhook-friendly for `curl` or frontend upload without `Read Binary Files`; same `documents vector(1536)` table as `rag-doc-search`.
+
+**Where to use:**
+
+- Frontend `fetch POST /webhook/doc-ingest { url }` from admin UI to index user-uploaded URLs without writing binary handling.
+- Replace `rag-doc-search/ingest.json` when you want one configurable node instead of wiring `Default Data Loader` / `Text Splitter` / `Embeddings` edges.
+- Binary upload microservice: `POST /webhook/doc-ingest-binary` with `data` multipart.
+
+**Showcase:** [showcase proof](doc-ingest-custom/showcase/README.md)
 
 ## Architecture
 
@@ -434,6 +473,12 @@ Notes:
 │   ├── preview.png                 # graph preview (3756x1956 dark)
 │   ├── README.md                   # case, triggers, nodes table, flow, credentials, env, quick start, gotchas
 │   └── showcase/                   # widget-demo.png, site-chat-execution.png, handoff-proof.png, db-widget-proof.png + README.md
+├── doc-ingest-custom/
+│   ├── workflow.json               # Webhook POST /webhook/doc-ingest (url) → Document Ingest (n8n-nodes-doc-ingest.docIngest) → Respond + Manual text demo
+│   ├── ingest-binary.json          # Webhook POST /webhook/doc-ingest-binary (binary) → Document Ingest (binary) → Respond
+│   ├── preview.png                 # graph preview (3756x1956 dark)
+│   ├── README.md                   # comparison vs 5-node chain, credentials, install, gotchas
+│   └── showcase/                   # webhook-curl + pgvector proof (see below)
 ├── docs/
 │   └── CONFIG.md                   # extended integration guide (host vs bridge, OpenRouter, poller, RAG, universal site)
 └── README.md

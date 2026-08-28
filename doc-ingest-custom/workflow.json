@@ -1,0 +1,184 @@
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "name": "Doc Ingest via n8n-nodes-doc-ingest (custom node)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "doc-ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c01",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        0
+      ],
+      "webhookId": "doc-ingest-custom-webhook",
+      "notes": "POST /webhook/doc-ingest { url: 'https://example.com/page.html' | 'https://..pdf', collection: 'documents', fileType: 'auto' }"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "ingest",
+        "source": "url",
+        "documentUrl": "={{ $json.body.url || $json.url || 'https://example.com' }}",
+        "fileType": "={{ $json.body.fileType || 'auto' }}",
+        "chunkSize": 1000,
+        "chunkOverlap": 200,
+        "embeddingsProvider": "openAI",
+        "embeddingModel": "text-embedding-3-small",
+        "batchSize": 50,
+        "vectorStore": "pgvector",
+        "collectionName": "={{ $json.body.collection || 'documents' }}",
+        "returnAll": true,
+        "continueOnFail": false,
+        "additionalFields": {
+          "metadataJson": "={\"source\": \"doc-ingest-custom\", \"url\": $json.body.url, \"ingested_at\": $now }",
+          "stripHtml": true
+        }
+      },
+      "id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d02",
+      "name": "Document Ingest",
+      "type": "n8n-nodes-doc-ingest.docIngest",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e",
+          "name": "OpenAI account"
+        },
+        "pgvectorApi": {
+          "id": "3a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres pgvector account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseData": "={{ { \"ok\": true, \"collection\": $json.collection, \"inserted\": $json.inserted, \"chunksIngested\": $json.chunksIngested, \"totalChunks\": $json.totalChunks, \"embeddingModel\": $json.embeddingModel } }}",
+        "options": {}
+      },
+      "id": "c3d4e5f6-a7b8-4c9d-8e0f-1f2a3b4c5d03",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -80,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4e5f6a7-b8c9-4d0e-9f1a-2b3c4d5e6f04",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "ingest",
+        "source": "text",
+        "documentText": "=Demo text for RAG: n8n is a workflow automation tool. DocIngest is a custom node that wraps PDF/DOCX/HTML/URL loading, recursive chunking (1000/200), OpenAI embeddings, and pgvector/Qdrant/Supabase upsert into a single node. Replace 5 nodes (Read Binary + Extract + Loader + Splitter + PGVector) with 1 node.",
+        "fileType": "text",
+        "chunkSize": 800,
+        "chunkOverlap": 100,
+        "embeddingsProvider": "openAI",
+        "embeddingModel": "text-embedding-3-small",
+        "batchSize": 20,
+        "vectorStore": "pgvector",
+        "collectionName": "documents",
+        "returnAll": true,
+        "continueOnFail": false,
+        "additionalFields": {
+          "metadataJson": "{\"source\": \"manual-text-demo\"}",
+          "stripHtml": false
+        }
+      },
+      "id": "e5f6a7b8-c9d0-4e1f-a2b3-3c4d5e6f7a05",
+      "name": "Document Ingest (text)",
+      "type": "n8n-nodes-doc-ingest.docIngest",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "2a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5e",
+          "name": "OpenAI account"
+        },
+        "pgvectorApi": {
+          "id": "3a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+          "name": "Postgres pgvector account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Document Ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Ingest": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Document Ingest (text)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "doc-ingest-custom"
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "doc-ingest-custom-v1",
+  "tags": [
+    {
+      "name": "doc-ingest"
+    },
+    {
+      "name": "rag"
+    },
+    {
+      "name": "custom-node"
+    }
+  ]
+}
