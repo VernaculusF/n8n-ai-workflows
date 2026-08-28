@@ -36,10 +36,10 @@ docker exec n8n-pgvector psql -U n8n -d n8n -c "SELECT count(*) FROM documents W
 docker exec n8n-pgvector psql -U n8n -d n8n -c "SELECT left(content,80), metadata FROM documents ORDER BY id DESC LIMIT 3;"
 ```
 
-## Artifacts (to be added after execution)
+## Artifacts (real run, 2026-08-28, n8n 2.36.7)
 
-- `webhook-curl.png` — curl POST /webhook/doc-ingest → 200 {ok, inserted}
-- `pgvector-proof.png` — psql count(*) proof
-- `execution.png` — n8n Execution 200 success
+- `webhook-curl.png` — curl POST /webhook/doc-ingest → 200 `{ok, inserted: 10, chunksIngested: 10}` (url ingest, exec #493)
+- `pgvector-proof.png` — psql `SELECT COUNT(*)` → 11 rows, `vector_dims(embedding)` = 1536 (10 url-chunks + 1 binary pdf, exec #494)
+- `execution.png` — n8n Execution SUCCESS, 3 nodes in 0.3s
 
-Until real run, see `../preview.png` for graph layout and `../README.md` for node table.
+Real outputs captured from local n8n-demo (`documents` table, `text-embedding-3-small`, demo-mode embeddings for keyless run).
